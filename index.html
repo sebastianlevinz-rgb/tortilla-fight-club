@@ -74,7 +74,7 @@ const clamp = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
 function px(x,y,w,h,c) { ctx.fillStyle=c; ctx.fillRect(Math.round(x),Math.round(y),w,h); }
 
 // ─── MUSIC (Web Audio API) ──────────────────────────────
-let audioCtx=null, musicGain=null, sfxGain=null, musicPlaying=false;
+let audioCtx=null, musicGain=null, sfxGain=null, musicPlaying=false, audioUnlocked=false;
 function initAudio(){
   if(audioCtx){
     if(audioCtx.state==='suspended')audioCtx.resume();
@@ -83,7 +83,12 @@ function initAudio(){
   audioCtx=new(window.AudioContext||window.webkitAudioContext)();
   musicGain=audioCtx.createGain();musicGain.gain.value=0.18;musicGain.connect(audioCtx.destination);
   sfxGain=audioCtx.createGain();sfxGain.gain.value=0.35;sfxGain.connect(audioCtx.destination);
+  // Play silent buffer to unlock audio on iOS
+  const buf=audioCtx.createBuffer(1,1,22050);
+  const src=audioCtx.createBufferSource();src.buffer=buf;src.connect(audioCtx.destination);src.start(0);
+  if(audioCtx.state==='suspended')audioCtx.resume();
 }
+function unlockAudio(){if(!audioUnlocked){audioUnlocked=true;initAudio();}}
 // Mexican-style melody notes [freq, duration_sec]
 const MEL=[
   [440,.18],[440,.18],[523,.18],[587,.35],[659,.25],[587,.18],[523,.25],[440,.35],
@@ -217,8 +222,9 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => {
   if (e.code === 'Space') { e.preventDefault(); keys.space = false; }
 });
-// Ensure audio context on any user interaction
-document.addEventListener('pointerdown',()=>initAudio(),{once:true});
+// Ensure audio context on any user interaction (multiple events for iOS+Android+desktop)
+['touchstart','touchend','mousedown','click','pointerdown'].forEach(ev=>
+  document.addEventListener(ev,unlockAudio,{once:true,passive:true}));
 // Mobile-friendly button tap (no 300ms delay)
 function tapBtn(el, fn) {
   let tapped = false;
@@ -521,7 +527,57 @@ function drawRancho(x,y,t){
 function drawChar(charId, x, y, facing, waterPct, state) {
   const ch = getC(charId), f = facing==='right'?1:-1;
   const sk=ch.skin,sks=ch.skinS,hr=ch.hair,hrs=ch.hairS,o1=ch.out1,o2=ch.out2,ac=ch.acc;
-  const bob = state==='idle' ? Math.sin(G.t/300)*1.5 : 0;
+  // Fallen state: draw character sideways on the ground
+  if (state === 'fallen') {
+    ctx.save();
+    const gndY = y + 8; // ground level
+    ctx.translate(x + 10, gndY);
+    ctx.rotate(f * Math.PI / 2); // rotate 90 degrees
+    ctx.translate(-(x + 10), -y);
+    // Draw normal idle body rotated
+    const ox2=x, oy2=y;
+    const cS2=0.4+(waterPct/100)*0.6;
+    const cW2=Math.max(1,Math.round(4*cS2)),cH2=Math.max(1,Math.round(3*cS2));
+    // Simplified body (just the main shapes)
+    px(ox2+3,oy2-30,14,13,sk);px(ox2+5,oy2-24,3,3,'#FFF');px(ox2+12,oy2-24,3,3,'#FFF');
+    px(ox2+7,oy2-23,1,1,'#111');px(ox2+14,oy2-23,1,1,'#111');
+    // X eyes (knocked out)
+    ctx.strokeStyle='#111';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(ox2+5,oy2-25);ctx.lineTo(ox2+8,oy2-22);ctx.moveTo(ox2+8,oy2-25);ctx.lineTo(ox2+5,oy2-22);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(ox2+12,oy2-25);ctx.lineTo(ox2+15,oy2-22);ctx.moveTo(ox2+15,oy2-25);ctx.lineTo(ox2+12,oy2-22);ctx.stroke();
+    // Open mouth
+    px(ox2+7,oy2-19,6,3,'#111');px(ox2+8,oy2-18,4,1,'#C62828');
+    // Hair
+    px(ox2+2,oy2-35,16,5,hr);
+    // Body
+    px(ox2+4,oy2-16,12,14,o1);px(ox2+4,oy2-16,1,14,o2);
+    // Legs
+    px(ox2+5,oy2-2,4,8,o1);px(ox2+11,oy2-2,4,8,o1);
+    // Cheeks (drained)
+    px(ox2+1,oy2-23,cW2,cH2,'#FF8A80');px(ox2+17-cW2,oy2-23,cW2,cH2,'#FF8A80');
+    ctx.restore();
+    // Water puddle on the ground
+    ctx.globalAlpha=0.6;
+    const pudW=30+Math.sin(G.t/400)*3;
+    for(let i=0;i<3;i++){
+      const py=gndY+2+i*2,pw=pudW-i*6;
+      px(x+10-pw/2,py,pw,2,'#4FC3F7');
+    }
+    ctx.globalAlpha=0.3;
+    px(x+10-pudW/2-2,gndY+1,pudW+4,1,'#81D4FA');
+    ctx.globalAlpha=1;
+    // Dripping water from mouth
+    if((G.t/300|0)%3===0){
+      const drip=G.t%300/300;
+      ctx.globalAlpha=1-drip;
+      px(x+10+f*5,gndY-2+drip*8,2,3,'#4FC3F7');
+      ctx.globalAlpha=1;
+    }
+    return;
+  }
+  // Celebrating state: bouncy dance with arms up
+  const celebBob = state==='celebrating' ? Math.abs(Math.sin(G.t/150))*8 : 0;
+  const bob = state==='idle' ? Math.sin(G.t/300)*1.5 : (state==='celebrating' ? -celebBob : 0);
   let ox=x, oy=y+bob;
   const cScale = 0.4+(waterPct/100)*0.6;
   const cW = Math.max(1, Math.round(4*cScale)), cH = Math.max(1, Math.round(3*cScale));
@@ -615,6 +671,26 @@ function drawChar(charId, x, y, facing, waterPct, state) {
       px(ox+2,oy-2,16,4,o1);px(ox+4,oy+2,4,2,o2);px(ox+12,oy+2,4,2,o2);
       px(ox+2,oy+8,7,2,sk);px(ox+11,oy+8,7,2,sk);
       break;}
+  }
+  // Celebrating overlay: arms up waving + happy face
+  if(state==='celebrating'){
+    const wave=Math.sin(G.t/120)*4;
+    const wave2=Math.sin(G.t/120+1.5)*4;
+    // Left arm up
+    px(ox-2,oy-20-Math.abs(wave),5,12,sk);px(ox-3,oy-24-Math.abs(wave),7,5,sk);
+    // Right arm up
+    px(ox+17,oy-20-Math.abs(wave2),5,12,sk);px(ox+16,oy-24-Math.abs(wave2),7,5,sk);
+    // Happy mouth (big smile)
+    px(ox+6,oy-19,8,3,sk); // cover old mouth
+    px(ox+6,oy-18,8,2,'#111');px(ox+7,oy-17,6,1,'#E57373');px(ox+7,oy-19,6,1,sk);
+    // Sparkle stars around character
+    const sparkT=G.t/200;
+    for(let i=0;i<4;i++){
+      const sa=sparkT+i*Math.PI/2, sr=18+Math.sin(sparkT*2+i)*4;
+      const sx2=ox+10+Math.cos(sa)*sr, sy2=oy-20+Math.sin(sa)*sr;
+      const ss=1+((G.t/100+i*30|0)%3);
+      px(sx2,sy2,ss,ss,'#FFD700');px(sx2-1,sy2+ss/2,ss+2,1,'#FFD700');px(sx2+ss/2,sy2-1,1,ss+2,'#FFD700');
+    }
   }
   ctx.restore();
 }
@@ -956,6 +1032,7 @@ function showTitle() {
   document.getElementById('bottom-bar').style.display='none';
   document.getElementById('spec-btn').style.display='none';
   ov.classList.remove('hidden');
+  ov.style.justifyContent='center';ov.style.paddingTop='0';
   ov.innerHTML=`<div class="ov-title">TORTILLA<br>FIGHT CLUB</div>
     <div class="ov-sub">⚡ PIXEL PSYCHEDELIC EDITION ⚡<br>Tortilla slaps in the desert</div>
     <button class="ov-btn" id="bs">LET'S FIGHT!</button>`;
@@ -1150,14 +1227,25 @@ function showResult() {
   document.getElementById('bottom-bar').style.display='none';
   document.getElementById('spec-btn').style.display='none';
   ov.classList.remove('hidden');
+  ov.style.justifyContent='flex-start';ov.style.paddingTop='15px';
   const isW=G.winner==='player',wCh=isW?getC(G.player):getC(G.cpu);
   ov.innerHTML=`<div class="result-big" style="color:${isW?'#0f0':'#f44'}">${isW?'VICTORY!':'DEFEAT...'}</div>
     <div class="result-msg">${isW?wCh.name+' dried out the rival!':wCh.name+' drained all your water...'}</div>
-    <div style="font-size:6px;color:#fa0;margin-top:8px">${pick(RPH.win)}</div>
-    <button class="ov-btn" id="br" style="margin-top:16px">REMATCH!</button>`;
-  tapBtn(document.getElementById('br'),()=>{G.screen='title';G.particles=[];G.bubbles=[];G.celebItems=[];startMusic();showTitle();});
-  // Victory fanfare
+    <div style="font-size:6px;color:#fa0;margin-top:4px">${pick(RPH.win)}</div>
+    <button class="ov-btn" id="br" style="margin-top:10px">REMATCH!</button>`;
+  tapBtn(document.getElementById('br'),()=>{G.screen='title';G.particles=[];G.bubbles=[];G.celebItems=[];ov.style.justifyContent='center';ov.style.paddingTop='0';startMusic();showTitle();});
+  // Loser spits out a big splash of water
+  const loserX=isW?C_POS.x:P_POS.x, loserY=isW?C_POS.y:P_POS.y;
+  for(let i=0;i<20;i++){
+    G.particles.push({x:loserX+10+rand(-3,3),y:loserY-20,vx:rand(-15,15)/10,vy:rand(-20,-5)/10,
+      life:rand(40,80),max:80,size:rand(1,4),color:pick(['#4FC3F7','#81D4FA','#B3E5FC']),type:'water'});
+  }
+  // Audio
   if(isW) playVictoryFanfare();
+  else { playSfx(200,0.3);setTimeout(()=>playSfx(150,0.4),300); } // sad trombone for defeat
+  // Winner celebration bubble
+  const winnerX=isW?P_POS.x:C_POS.x, winnerY=isW?P_POS.y:C_POS.y;
+  addBubble(winnerX+10,winnerY-55,pick(["YEAH!","I'M THE CHAMP!","TOO EASY!","OLEEEE!"]),90,'#FFD700');
   // Celebration items!
   G.celebItems=[];
   if(isW){
@@ -1233,6 +1321,11 @@ function render(ts) {
     const cW3 = G.cMax > 0 ? (G.cHp/G.cMax)*100 : 0;
     let pX = P_POS.x, cX = C_POS.x;
     let pSt = G.pState || 'idle', cSt = G.cpuState || 'idle';
+    // Result screen: winner celebrates, loser falls
+    if (G.screen === 'result' && G.winner) {
+      if (G.winner === 'player') { pSt = 'celebrating'; cSt = 'fallen'; }
+      else { cSt = 'celebrating'; pSt = 'fallen'; }
+    }
     if (G.slapPhase) {
       if (G.slapWho === 'player') {
         pX = G.attackerX;

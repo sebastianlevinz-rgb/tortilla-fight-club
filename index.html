@@ -48,7 +48,7 @@ canvas#c{image-rendering:pixelated;image-rendering:crisp-edges;display:block}
     </div>
   </div>
   <div id="overlay"></div>
-  <div id="spec-btn" onclick="usePlayerSpecial()">SPECIAL [S]</div>
+  <div id="spec-btn">SPECIAL</div>
 </div>
 
 <script>
@@ -197,8 +197,30 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => {
   if (e.code === 'Space') { e.preventDefault(); keys.space = false; }
 });
-window.addEventListener('touchstart', e => { e.preventDefault(); keys.space = true; }, {passive:false});
-window.addEventListener('touchend', e => { e.preventDefault(); keys.space = false; }, {passive:false});
+// Mobile-friendly button tap (no 300ms delay)
+function tapBtn(el, fn) {
+  let tapped = false;
+  el.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); tapped=true; fn(); }, {passive:false});
+  el.addEventListener('click', e => { if(!tapped) fn(); tapped=false; });
+}
+// Touch: only capture on canvas/game area, not on UI buttons
+function isTouchOnGame(e) {
+  const t = e.target;
+  // Don't capture if touching overlay buttons or spec button
+  if (t.closest('#overlay') || t.closest('#spec-btn')) return false;
+  return true;
+}
+canvas.addEventListener('touchstart', e => { e.preventDefault(); keys.space = true; }, {passive:false});
+canvas.addEventListener('touchend', e => { e.preventDefault(); keys.space = false; }, {passive:false});
+// Also catch touches on the game container (but not overlay)
+document.getElementById('game').addEventListener('touchstart', e => {
+  if (!isTouchOnGame(e)) return;
+  e.preventDefault(); keys.space = true;
+}, {passive:false});
+document.getElementById('game').addEventListener('touchend', e => {
+  if (!isTouchOnGame(e)) return;
+  e.preventDefault(); keys.space = false;
+}, {passive:false});
 
 // ─── BUBBLES ────────────────────────────────────────────
 function addBubble(x, y, text, duration, col) {
@@ -853,7 +875,7 @@ function endTurn() {
     G.pHp = Math.min(G.pMax, G.pHp + 5); setRT(pick(RPH.heal));
   }
   if (cCh.passiveHeal && G.turn % 3 === 0 && G.cHp > 0 && G.cHp < G.cMax) G.cHp = Math.min(G.cMax, G.cHp + 5);
-  G.phase = 'idle';setPrompt('HOLD SPACE TO CHARGE');
+  G.phase = 'idle';setPrompt('HOLD TO CHARGE');
   // Show special button if available
   if(!G.pSpecUsed) document.getElementById('spec-btn').style.display='block';
 }
@@ -914,7 +936,7 @@ function showTitle() {
   ov.innerHTML=`<div class="ov-title">TORTILLA<br>FIGHT CLUB</div>
     <div class="ov-sub">⚡ PIXEL PSYCHEDELIC EDITION ⚡<br>Tortilla slaps in the desert</div>
     <button class="ov-btn" id="bs">LET'S FIGHT!</button>`;
-  document.getElementById('bs').onclick=()=>{startMusic();G.screen='select';showSelect();};
+  tapBtn(document.getElementById('bs'),()=>{startMusic();G.screen='select';showSelect();});
 }
 
 function showSelect() {
@@ -932,7 +954,7 @@ function showSelect() {
     const mc=document.createElement('canvas');mc.width=48;mc.height=64;
     mc.style.cssText='width:80px;height:106px;image-rendering:pixelated;display:block';
     d.querySelector('.cp-preview').appendChild(mc);
-    d.onclick=()=>selChar(ch.id);
+    tapBtn(d,()=>selChar(ch.id));
     grid.appendChild(d);
     drawCharPreview(mc.getContext('2d'), ch);
   });
@@ -966,7 +988,7 @@ function showIntro() {
   document.getElementById('ic-wrap').appendChild(icC);
   drawCharPreview(ipC.getContext('2d'),p2);
   drawCharPreview(icC.getContext('2d'),c2);
-  document.getElementById('bf').onclick=startBattleIntro;
+  tapBtn(document.getElementById('bf'),startBattleIntro);
 }
 
 // ─── BATTLE INTRO (cinematic entrance) ──────────────────
@@ -1020,7 +1042,7 @@ function updateBattleIntro(){
       if(G.introFrame>=60){
         // Transition to actual battle
         G.screen='battle';G.phase='idle';
-        setPrompt('HOLD SPACE TO CHARGE');
+        setPrompt('HOLD TO CHARGE');
         if(!G.pSpecUsed)document.getElementById('spec-btn').style.display='block';
       }break;
   }
@@ -1035,7 +1057,7 @@ function showResult() {
     <div class="result-msg">${isW?wCh.name+' dried out the rival!':wCh.name+' drained all your water...'}</div>
     <div style="font-size:6px;color:#fa0;margin-top:8px">${pick(RPH.win)}</div>
     <button class="ov-btn" id="br" style="margin-top:16px">REMATCH!</button>`;
-  document.getElementById('br').onclick=()=>{G.screen='title';G.particles=[];G.bubbles=[];startMusic();showTitle();};
+  tapBtn(document.getElementById('br'),()=>{G.screen='title';G.particles=[];G.bubbles=[];startMusic();showTitle();});
   if(isW)for(let i=0;i<50;i++)G.particles.push({x:rand(0,W),y:rand(-20,-5),vx:rand(-10,10)/10,vy:rand(3,10)/10,
     life:rand(80,200),max:200,size:rand(1,3),color:pick(['#f00','#0f0','#ff0','#f0f','#0ff','#fff']),type:'confetti'});
 }
@@ -1155,6 +1177,7 @@ function render(ts) {
   requestAnimationFrame(render);
 }
 
+tapBtn(document.getElementById('spec-btn'), usePlayerSpecial);
 showTitle();
 requestAnimationFrame(render);
 </script>
